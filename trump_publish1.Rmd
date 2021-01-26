@@ -1,0 +1,429 @@
+---
+title: "特朗普案例"
+author: "赵紫荆"
+date: "2021/1/25"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+**导入数据**
+```{r message = FALSE}
+#该符号后面的文字为笔记，不会run
+#install.packages("quanteda") #安装包
+#加载需要的包
+#处理日期
+library(lubridate) 
+#读入数据
+library(readr) 
+library("writexl") 
+#文本
+library(tm) 
+library(tmcn) 
+library(jiebaR) 
+library(quanteda) 
+library(topicmodels) 
+#常用
+library(stringr) 
+library("tidyverse") 
+library(dplyr) 
+library(pals) 
+#画图
+library(ggplot2)
+library(RColorBrewer) 
+library(colorspace)
+```
+**存储数据save data**
+```{r}
+#save(list = ls(all=TRUE), file = "")
+```
+**preprocessing**
+read data
+```{r message = FALSE}
+options(scipen = 200)#设定科学计数法
+rm(list=ls()) #移除环境的数据
+trump<-read_csv("/Users/zijingzhao/Documents/data/trump_tweet.csv") #读入数据
+head(trump) #查看数据结构
+```
+
+```{r}
+nrow(trump) #查看数据行
+```
+
+**trump数据预处理**
+```{r message = FALSE}
+#处理日期
+time_trump=as.POSIXlt(trump$date, format="%Y-%m-%d %H:%M:%OS") 
+year_trump<-substr(time_trump,1,4)%>% as.numeric() 
+month_trump<-substr(time_trump,6,7)%>% as.numeric()
+day_trump<-substr(time_trump, 9, 10) %>% as.numeric()
+year_month_trump<-substr(time_trump, 1, 7) 
+ymd_trump_fac<-substr(time_trump, 1, 10)
+
+#把日期合并到川普的数据中
+trump<-  cbind(trump,year_trump,month_trump,day_trump,ymd_trump_fac)
+trump<-  cbind(trump,year_trump,year_month_trump)
+year_month_trump_date<-as.Date(paste(year_month_trump,"-01",sep=""))#设定月份
+#设定为日期格式数据，画图需要
+
+#形成是否当选总统变量
+trump$ymd_trump_fac<-ymd_trump_fac
+trump$isPresident_trump<-rep(0,nrow(trump))
+trump$isPresident_trump<-ifelse((trump$year_trump>2017),1,0)
+trump$isPresident_trump<-ifelse(trump$year_trump==2017 & trump$month_trump>1,1,trump$isPresident_trump)
+trump$isPresident_trump<-ifelse(trump$year_trump==2017 & trump$month_trump==1 & trump$day_trump>19,1,trump$isPresident_trump) 
+trump$isPresident_factor<-trump$isPresident_trump
+trump$isPresident_factor<-ifelse((trump$isPresident_trump==1),"当选美国总统后","当选美国总统前")
+
+#形成是否确认参选变量
+trump$isCampaign<-rep(0,nrow(trump))
+#trump$isElection<-ifelse((trump$isPresident_trump==1),1,0)
+trump$isCampaign<-ifelse(trump$year_trump>2019,1,0)
+trump$isCampaign<-ifelse(trump$year_trump==2019 & trump$month_trump>4,1,trump$isCampaign)
+trump$isCampaign<-ifelse(trump$year_trump==2019 & trump$month_trump==4 & trump$day_trump>24,1,trump$isCampaign)
+trump$isCampaign_factor<-trump$isCampaign
+trump$isCampaign_factor<-ifelse((trump$isCampaign==1),"确认参加2020选举后","确认参加2020选举前")
+
+#形成是否是本次大选前后变量
+trump$isElection<-rep(0,nrow(trump))
+#trump$isElection<-ifelse((trump$isPresident_trump==1),1,0)
+trump$isElection<-ifelse(trump$year_trump==2020 & trump$month_trump>5,1,0)
+trump$isElection_factor<-trump$isElection
+trump$isElection_factor<-ifelse((trump$isElection==1),"2020选举后","2020选举前")
+
+#形成是否删除变量
+trump$isDeleted_factor<-trump$isDeleted
+trump$isDeleted_factor<-ifelse((trump$isDeleted_factor=="TRUE"),"已被删除","未被删除")
+
+trump$year_month_trump_date<-year_month_trump_date
+
+#导出热度最高的微博
+# trump$total<-trump$favorites+trump$retweets
+# trump[order(trump$total,decreasing = T),] %>% head(50) %>% write_xlsx(.,"/Users/zijingzhao/Desktop/人民在线/美国/top_hot.xlsx")
+```
+
+**建立corpus和dfm**
+```{r message = FALSE}
+#形成corpus
+cor_trump<-corpus(trump$text)
+```
+
+```{r}
+#给corpus增加变量
+docvars(cor_trump,"isRetweet")<-trump$isRetweet
+docvars(cor_trump,"isDeleted")<-trump$isDeleted
+docvars(cor_trump,"day_trump")<-trump$day_trump
+docvars(cor_trump,"month_trump")<-trump$month_trump
+docvars(cor_trump,"year_trump")<-trump$year_trump
+docvars(cor_trump,"ymd_trump_fac")<-trump$ymd_trump_fac
+docvars(cor_trump,"ymd_trump")<-trump$ymd_trump
+docvars(cor_trump,"year_month_trump_date")<-year_month_trump_date
+docvars(cor_trump,"favorites")<-trump$favorites
+docvars(cor_trump,"retweets")<-trump$retweets
+docvars(cor_trump,"isFlagged")<-trump$isFlagged
+docvars(cor_trump,"isPresident_trump")<-trump$isPresident_trump
+docvars(cor_trump,"isPresident_factor")<-trump$isPresident_factor
+docvars(cor_trump,"Date_num")<-trump$Date_num
+docvars(cor_trump,"isElection")<-trump$isElection
+docvars(cor_trump,"isElection_factor")<-trump$isElection_factor
+docvars(cor_trump,"isDeleted_factor")<-trump$isDeleted_factor
+docvars(cor_trump,"isCampaign")<-trump$isCampaign
+docvars(cor_trump,"isCampaign_factor")<-trump$isCampaign_factor
+summary(cor_trump) %>% head()
+```
+
+**形成dfm**
+```{r}
+dfm_trump <- dfm(cor_trump, remove_punct = T,remove_numbers = TRUE,remove= c(stopwords("en"),"can", "must", "https", "http","rt","@realdonaldtrump","amp","just","will","t.co"), stem = FALSE,tolow=T)
+#关键词
+topfeatures(dfm_trump,20)
+```
+
+```{r}
+textplot_wordcloud(dfm_trump,  random_order = F,
+                    max_words = 200,color = "steelblue")
+```
+
+**去掉空文件**
+```{r}
+#subset corpus
+cor_trump_president<-corpus_subset(cor_trump,ntoken(dfm_trump) > 0 & isPresident_trump==1)
+cor_trump_president_dfm<-dfm(cor_trump_president,remove_punct = T,remove_numbers = TRUE, remove= c(stopwords("en"),"can", "must", "https", "http","rt","amp","just"),remove_url=TRUE)%>%dfm_trim(.,min_termfreq = 5)
+
+cor_trump_president_trim<-corpus_subset(cor_trump_president,ntoken(cor_trump_president_dfm) > 0)
+cor_trump_president_trim_dfm<-dfm_subset(cor_trump_president_dfm, ntoken(cor_trump_president_dfm) > 0)
+summary(cor_trump_president_trim_dfm) %>% head()
+```
+
+**识别特定关键词**
+```{r}
+kwic(cor_trump, pattern="taiwan",valuetype = c("regex"),window = 10)
+```
+
+```{r}
+#用识别出的部分词建corpus  
+cor.biden <- kwic(cor_trump, c("biden","joe"), separator = "",
+           remove_separators = FALSE) %>% corpus(.)
+  
+summary(cor.biden) %>% head()
+dfm.biden <- dfm(cor.biden, remove_punct = T,remove_numbers = TRUE, remove= c(stopwords("en"),"can", "must", "https", "http","rt","@realdonaldtrump","amp","just","will"), stem = FALSE,tolow=T)
+
+#查看关键词
+topfeatures(dfm.biden,20)
+```
+
+
+#发文频率图
+```{r}
+#形成每天的Twitter数量
+twitter_num<-table(trump$ymd_trump_fac) %>% as.data.frame()
+twitter_num$date.date<-as.Date(twitter_num$Var1 , format = "%Y-%m-%d" )
+```
+
+**画图**
+```{r}
+  ggplot(data=twitter_num, aes(x=date.date, y=Freq)) +
+  geom_line(color="steelblue")+xlab("") +
+  labs(#title = "Change of Sentiment Score over Time",
+  #subtitle = "Duration: 2020.01.01-2020.04.19",
+  #caption = "score=ntoken(pos-neg)",
+  #x = "Date",
+  y = "推特频率",
+  x = "日期") +  theme_bw()+
+  scale_x_date(date_labels = "%Y-%m",date_breaks = "6 month")+
+  theme(axis.text.x = element_text(angle = 60, hjust = 1,family =  "Arial Unicode MS",size=6),
+  legend.text = element_text(size=10,family =  "Arial Unicode MS"))+
+  theme(text = element_text(size = 10,family =  "Arial Unicode MS"))+
+geom_vline(xintercept = as.Date("2017-01-20",format="%Y-%m-%d"),color="darkred",size=0.5,linetype="dashed")+
+geom_vline(xintercept = as.Date("2015-06-01",format="%Y-%m-%d"),color="darkred",size=0.5,linetype="dashed") +
+geom_vline(xintercept = as.Date("2019-12-18",format="%Y-%m-%d"),color="darkred",size=0.5,linetype="dashed")+ 
+geom_vline(xintercept = as.Date("2020-03-01",format="%Y-%m-%d"),color="darkred",size=0.5,linetype="dashed") +
+geom_vline(xintercept = as.Date("2020-12-14",format="%Y-%m-%d"),color="darkred",size=0.5,linetype="dashed")
+
+```
+
+**提取名称**
+```{r}
+atsomeone <- str_extract_all(trump$text[trump$isPresident_trump==1], '@[A-Za-z0-9_]+') %>% unlist() %>% table() %>% sort(decreasing = TRUE) %>% head(n = 50)%>% as.data.frame(.)
+head(atsomeone,10)
+#write_xlsx(atsomeone,"") #导出xlsx文件
+```
+
+username plot-trump
+```{r}
+user_dfm <- dfm_select(cor_trump_president_dfm, pattern = "@*")
+topuser <- names(topfeatures(user_dfm, 50))
+
+user_fcm <- fcm(user_dfm)
+user_fcm <- fcm_select(user_fcm, pattern = topuser)
+textplot_network(user_fcm, min_freq = 3, edge_color = "steelblue", edge_alpha = 0.8, edge_size = 4)
+```
+
+#提取话题
+```{r}
+hashtags <- str_extract_all(trump$text[trump$isPresident_trump==1], '#[A-Za-z0-9_]+') %>% unlist() %>% table() %>% sort(decreasing = TRUE) %>% head(n = 50)%>%as.data.frame(.)
+head(hashtags,10)
+```
+
+tagplot
+```{r}
+tag_dfm_trump <- dfm_select(cor_trump_president_dfm, pattern = ("#*"))
+toptag_trump <- names(topfeatures(tag_dfm_trump, 50))
+tag_dfm_trump <- fcm(tag_dfm_trump)
+tag_dfm_trump <- fcm_select(tag_dfm_trump, pattern = toptag_trump)
+textplot_network(tag_dfm_trump,  edge_color = "darkred",edge_alpha = 0.8, edge_size = 5)
+
+```
+
+**提取 maga相关的corpus**
+```{r}
+#提取关键词建立corpus的办法
+containstarget <-   stringr::str_detect(texts(cor_trump_president), "#AmericaFirst|#MAGA|#MakeAmericaGreatAgain|#MAGARally")
+summary(containstarget) %>% head()
+```
+
+```{r}
+cor_trump_president_maga<-corpus_subset(cor_trump_president, containstarget)
+
+docvars(cor_trump_president,"maga")<-containstarget
+
+cor_trump_president_dfm<-dfm(cor_trump_president_maga,remove_punct = T,remove_numbers = TRUE, remove= c(stopwords("en"),"can", "must", "https", "http","rt","@realdonaldtrump","amp","just"),remove_url=TRUE)
+
+textplot_wordcloud(cor_trump_president_dfm,  random_order = F,comparison = F,
+                    max_words = 50,color = "steelblue")
+
+```
+**分组对比分析**
+deleted twitter
+```{r}
+cor_trump_president_delete_dfm_group <- dfm(cor_trump_president, groups=c("isDeleted"),remove_punct = T,remove_numbers = TRUE, remove= c(stopwords("en"),"can", "must", "https", "http","rt","@realdonaldtrump","amp","just","#maga","p.m","im","#rt","others.thank","themselves-but"),remove_url=TRUE)
+
+textplot_wordcloud(cor_trump_president_delete_dfm_group,  random_order = F,comparison = T,max_words = 50,color = "steelblue")
+```
+
+删掉人名的结果
+```{r}
+cor_trump_president_delete_dfm_group_noname <- dfm_select(cor_trump_president_delete_dfm_group, "@[A-Za-z0-9_]+", selection = "remove", valuetype = "regex")
+
+textplot_wordcloud(cor_trump_president_delete_dfm_group_noname,  random_order = F,comparison = T,max_words = 50,color = "steelblue")
+```
+另一种图
+```{r}
+textstat_keyness(cor_trump_president_delete_dfm_group_noname, target="FALSE",
+                      measure="chi2") %>% textplot_keyness(.,n=30,labelsize=3,color=c("steelblue","darkred"),margin = 0.05)
+```
+
+
+**情感分析**
+导入词典
+```{r}
+library(quanteda.dictionaries)
+data(data_dictionary_geninqposneg)
+
+pos.words <- data_dictionary_geninqposneg[['positive']]
+neg.words <- data_dictionary_geninqposneg[['negative']]
+mydict <- dictionary(list(positive = pos.words,
+                          negative = neg.words))
+
+```
+建立情感分数
+```{r}
+sent.dfm <- dfm(cor_trump_president, dictionary = mydict)
+```
+
+每日的平均情感分数
+```{r}
+score_per_day<-cbind(
+  aggregate(as.numeric(sent.dfm[,1]) , by = list(docvars(cor_trump_president,"ymd_trump")),FUN="mean"),
+  aggregate(as.numeric(sent.dfm[,2]) , by = list(docvars(cor_trump_president,"ymd_trump")),FUN="mean")[,2])
+
+colnames(score_per_day)<-c("date",sent.dfm@Dimnames$features)
+
+aggregate.mat.fullsample.long <- score_per_day %>%
+  select(colnames(score_per_day)) %>%
+  gather(key = "sentiment", value = "score", -date)
+
+aggregate.mat.fullsample.long<-cbind(aggregate.mat.fullsample.long,as.Date(aggregate.mat.fullsample.long$date))
+colnames(aggregate.mat.fullsample.long)<-c(colnames(aggregate.mat.fullsample.long)[-4],"date.date")
+
+```
+每月的平均情感分数
+```{r results='hide'}
+docvars(cor_trump_president,"month_trump")
+```
+
+```{r}
+score_per_month<-cbind(
+  aggregate(as.numeric(sent.dfm[,1]) , by = list(docvars(cor_trump_president,"year_month_trump_date")),FUN="mean"),
+  aggregate(as.numeric(sent.dfm[,2]) , by = list(docvars(cor_trump_president,"year_month_trump_date")),FUN="mean")[,2],
+  aggregate(as.numeric(as.numeric(sent.dfm[,1]) - as.numeric(sent.dfm[,2])) , by = list(docvars(cor_trump_president,"year_month_trump_date")),FUN="mean")[,2])
+  
+
+colnames(score_per_month)<-c("month",sent.dfm@Dimnames$features,"pos-neg")
+
+aggregate.mat.fullsample.long1 <- score_per_month %>%
+  select(colnames(score_per_month)) %>%
+  gather(key = "sentiment", value = "score", -month)
+
+aggregate.mat.fullsample.long1<-cbind(aggregate.mat.fullsample.long1,as.Date(aggregate.mat.fullsample.long1$month))
+colnames(aggregate.mat.fullsample.long1)<-c(colnames(aggregate.mat.fullsample.long1)[-4],"month.date")
+head(aggregate.mat.fullsample.long1)
+```
+
+```{r}
+  ggplot(aggregate.mat.fullsample.long1, aes(x = month.date, y = score)) + 
+         geom_line(aes(color = sentiment,linetype = sentiment))+
+       labs(#title = "Change of Sentiment Score over Time",
+       #subtitle = "Duration: 2020.01.01-2020.04.19",
+       #caption = "score=ntoken(pos-neg)",
+       #x = "Date",
+       y = "Change in density",
+       x = "Date")
+
+```
+
+**主题模型**
+```{r}
+library(topicmodels)
+lda.30<- LDA(cor_trump_president_trim_dfm, k = 30, method = "Gibbs", 
+                control = list(verbose=25L, seed = 123, burnin = 100, iter = 100))
+get_terms(lda.30, 20)
+```
+
+```{r}
+# have a look a some of the results (posterior distributions)
+tmResult <-   posterior(lda.30)
+
+# format of the resulting object
+attributes(tmResult)
+# topics are probability distribtions over the entire vocabulary
+beta <- tmResult$terms   # get beta from results
+dim(beta)                # K distributions over ncol(DTM) terms
+rowSums(beta)            # rows in beta sum to 1
+# for every document we have a probability distribution of its contained topics
+theta <-  tmResult$topics
+theta.data.frame<-as.data.frame(theta)
+```
+
+处理数据格式
+```{r}
+topic_proportion_per_date<- aggregate(theta, by = list(date=docvars(cor_trump_president_trim_dfm,"ymd_trump")),FUN="mean")
+
+head(topic_proportion_per_date)
+#set simple topic names
+top8termsPerTopic <- terms(lda.30,5)
+topicNames <- apply(top8termsPerTopic, 2, paste, collapse=" ")
+
+# set topic names to aggregated columns
+colnames(topic_proportion_per_date)[2:31]<- topicNames
+
+#remove used topics 
+topic_proportion_per_date<-  topic_proportion_per_date[,-c(3,5,10,11,12,16,23,25,30)]
+colnames_left<-
+  colnames(topic_proportion_per_date)
+#调整话题名称和顺序
+topic_proportion_per_date<- topic_proportion_per_date[,c(1,14,10,4,2,13,16,8,5,15,18,20,17,21,9,12,3,6,7,11,19)]
+topicname.title<-c("date",
+                   "首届选举：奥巴马",
+                   "首届竞选：乐观预期",
+                   "首届竞选：庆祝",
+                   "政治/外交：通乌门",
+                   "政治/外交：伊朗问题",
+                   "政治/外交：通俄门",
+                   "政治/外交：涉华态度",
+                   "经济：增加国内就业",
+                   "经济：发展成果",
+                   "经济：医保、降税",
+                   "政策：边境移民",
+                   "疫情：纽约州",
+                   "热点事件：自然灾害，加州飓风",
+                   "热点事件：弗洛伊德之死",
+                   "连任选举：逆转拿下德州",
+                   "连任选举：乐观预期",
+                   "连任选举：拜登",
+                   "连任选举：指责假新闻",
+                   "连任选举：指责选举欺诈")
+colnames(topic_proportion_per_date)<-topicname.title
+# reshape data frame
+vizDataFrame_date <- data.table::melt(topic_proportion_per_date, id.vars = "date")
+vizDataFrame_date$date<-as.Date(vizDataFrame_date$date)
+colourCount = length(unique(vizDataFrame_date$variable))
+```
+plot
+```{r}
+colourCount = length(unique(vizDataFrame_date$variable))
+
+p_date<-
+  ggplot(vizDataFrame_date, aes(x=date, y=value, fill=factor(variable))) + 
+    geom_area()+
+   theme_bw()+
+    labs(title="微博话题随时间变化图", y="各话题所占比例", x="日期")+
+  theme(axis.text.x = element_text(angle = 60, hjust = 1,family =  "Arial Unicode MS",size=6),
+        legend.text = element_text(size=10,family =  "Arial Unicode MS"))+
+  theme(text = element_text(size = 10,family =  "Arial Unicode MS"))+
+  guides(fill=guide_legend(title="各话题关键词示例"))+
+  scale_fill_manual(values = colorRampPalette(brewer.pal(11, "Spectral"))(colourCount) %>% rev())
+p_date
+
+```
